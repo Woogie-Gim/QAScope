@@ -32,10 +32,14 @@ function App() {
 
   return (
     <div style={{ padding: '30px', fontFamily: 'sans-serif', color: '#333' }}>
-      <h1>🔍 QAScope Dashboard</h1>
-      <p style={{ color: '#666' }}>모바일 리소스 자동 측정 관제탑</p>
+      <h1 style={{ color: '#ffffff', margin: '0 0 10px 0', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' }}>
+        🔍 QAScope Dashboard
+      </h1>
+      <p style={{ color: '#8ab4f8', fontSize: '16px', marginTop: 0, marginBottom: '30px' }}>
+        안드로이드 앱 성능(메모리 · CPU · 발열) 실시간 모니터링 및 분석 도구
+      </p>
 
-      {/* 1. 디바이스 연결 상태 영역 */}
+      {/* 디바이스 연결 상태 영역 */}
       <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#f4f4f4', borderRadius: '10px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>📱 연결된 기기</h2>
