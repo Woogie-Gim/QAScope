@@ -4,11 +4,27 @@ function App() {
   const [devices, setDevices] = useState<string[]>([])
   const [packages, setPackages] = useState<string[]>([])
   const [selectedPackage, setSelectedPackage] = useState<string>('')
+  // 측정 상태 및 실시간 데이터 저장용 State 
+  const [isMeasuring, setIsMeasuring] = useState<boolean>(false)
+  const [currentData, setCurrentData] = useState({ memory: 0, cpu: 0, temperature: 0 })
 
   // 앱이 켜질 때 자동으로 기기 상태 확인
   useEffect(() => {
     fetchDevices()
   }, [])
+
+  // 측정 상태(isMeasuring)가 true일 때 1초마다 데이터 갱신
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (isMeasuring && selectedPackage) {
+      interval = setInterval(async () => {
+        const data = await window.electron.ipcRenderer.invoke('measure-resources', selectedPackage)
+        setCurrentData(data)
+      }, 1000)
+    }
+    // 컴포넌트 언마운트 또는 측정 중지 시 타이머 정리
+    return () => clearInterval(interval)
+  }, [isMeasuring, selectedPackage])
 
   // 백엔드에 'adb devices' 결과 요청
   const fetchDevices = async () => {
@@ -17,17 +33,13 @@ function App() {
 
     // 기기가 연결되어 있으면 패키지 목록도 가져오기
     if (deviceList.length > 0) {
-      fetchPackages()
+      const packageList = await window.electron.ipcRenderer.invoke('get-packages')
+      setPackages(packageList)
     } else {
       setPackages([])
       setSelectedPackage('')
+      setIsMeasuring(false)
     }
-  }
-
-  // 백엔드에 'pm list packages' 결과 요청
-  const fetchPackages = async () => {
-    const packageList = await window.electron.ipcRenderer.invoke('get-packages')
-    setPackages(packageList)
   }
 
   return (
@@ -76,15 +88,33 @@ function App() {
         disabled={!selectedPackage}
         style={{
           width: '100%', padding: '18px', fontSize: '20px', fontWeight: 'bold',
-          backgroundColor: selectedPackage ? '#007bff' : '#cccccc',
+          backgroundColor: selectedPackage ? (isMeasuring ? '#dc3545' : '#007bff') : '#cccccc',
           color: 'white', border: 'none', borderRadius: '10px', 
           cursor: selectedPackage ? 'pointer' : 'not-allowed',
           transition: 'background-color 0.3s'
         }}
-        onClick={() => alert(`[${selectedPackage}]\n측정 대시보드 뷰로 이동하는 로직이 추가될 예정입니다!`)}
+        onClick={() => setIsMeasuring(!isMeasuring)}
       >
-        🚀 측정 시작
+        {isMeasuring ? '🛑 측정 중지' : '🚀 측정 시작'}
       </button>
+
+      {/* 측정 중일 때 나타나는 실시간 데이터 패널 */}
+      {isMeasuring && (
+        <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between', gap: '15px' }}>
+          <div style={{ flex: 1, padding: '20px', backgroundColor: '#2a2a2a', borderRadius: '10px', textAlign: 'center', color: '#fff' }}>
+            <h3 style={{ margin: '0 0 10px 0', color: '#a8c7fa', whiteSpace: 'nowrap', fontSize: '18px' }}>메모리 (MB)</h3>
+          <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{currentData.memory}</div>
+        </div>
+        <div style={{ flex: 1, padding: '20px', backgroundColor: '#2a2a2a', borderRadius: '10px', textAlign: 'center', color: '#fff' }}>
+          <h3 style={{ margin: '0 0 10px 0', color: '#a8c7fa', whiteSpace: 'nowrap', fontSize: '18px' }}>CPU (%)</h3>
+          <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{currentData.cpu}</div>
+        </div>
+        <div style={{ flex: 1, padding: '20px', backgroundColor: '#2a2a2a', borderRadius: '10px', textAlign: 'center', color: '#fff' }}>
+          <h3 style={{ margin: '0 0 10px 0', color: '#a8c7fa', whiteSpace: 'nowrap', fontSize: '18px' }}>배터리 온도 (°C)</h3>
+          <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{currentData.temperature}</div>
+        </div>
+</div>
+      )}
     </div>
   )
 }

@@ -5,10 +5,9 @@ import icon from '../../resources/icon.png?asset'
 import { exec } from 'child_process'
 
 function createWindow(): void {
-  // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 900,
-    height: 670,
+    height: 750,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -18,17 +17,15 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
+  mainWindow.on('ready-to-show', function() {
     mainWindow.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  mainWindow.webContents.setWindowOpenHandler(function(details) {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -36,68 +33,97 @@ function createWindow(): void {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  // Set app user model id for windows
+app.whenReady().then(function() {
   electronApp.setAppUserModelId('com.electron')
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
+  app.on('browser-window-created', function(_, window) {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.on('ping', function() {
+    console.log('pong')
+  })
 
   createWindow()
 
-  // 연결된 디바이스 목록 가져오기
-  ipcMain.handle('get-devices', () => {
-    return new Promise((resolve) => {
-      exec('adb devices', (error, stdout) => {
+  // 디바이스 목록 획득
+  ipcMain.handle('get-devices', function() {
+    return new Promise(function(resolve) {
+      exec('adb devices', function(error, stdout) {
         if (error) return resolve([]);
         const lines = stdout.split('\n');
         const devices = lines
-          .filter(line => line.includes('\tdevice'))
-          .map(line => line.split('\t')[0]); // 기기 시리얼 번호만 추출
+          .filter(function(line) { return line.includes('\tdevice'); })
+          .map(function(line) { return line.split('\t')[0]; });
         resolve(devices);
       });
     });
   });
 
-  // 설치된 서드파티 패키지 목록 가져오기
-  ipcMain.handle('get-packages', () => {
-    return new Promise((resolve) => {
-      exec('adb shell pm list packages -3', (error, stdout) => {
+  // 서드파티 패키지 목록 획득
+  ipcMain.handle('get-packages', function() {
+    return new Promise(function(resolve) {
+      exec('adb shell pm list packages -3', function(error, stdout) {
         if (error) return resolve([]);
         const packages = stdout.split('\n')
-          .filter(line => line.includes('package:'))
-          .map(line => line.replace('package:', '').trim())
-          .sort(); // 알파벳 순서로 보기 좋게 정렬
+          .filter(function(line) { return line.includes('package:'); })
+          .map(function(line) { return line.replace('package:', '').trim(); })
+          .sort();
         resolve(packages);
       });
     });
   });
 
+ // PID 기반 리소스 측정 (멀티 프로세스 및 최신 안드로이드 완벽 대응)
+  ipcMain.handle('measure-resources', async function(_, pkgName) {
+    return new Promise(function(resolve) {
+      exec(`adb shell pidof ${pkgName}`, function(pidError, pidStdout) {
+        
+        // 타겟 설정: PID를 추출하되, 여러 개(예: 1234 1235)면 첫 번째 메인 프로세스만 사용
+        // 만약 pidof가 실패하면 최후의 수단으로 패키지명(pkgName)을 그대로 사용
+        let target = pkgName; 
+        if (!pidError && pidStdout && pidStdout.trim() !== '') {
+          target = pidStdout.trim().split(/\s+/)[0]; 
+        }
+
+        const getMem = new Promise<string>(function(res) {
+          exec(`adb shell dumpsys meminfo ${target}`, function(e, stdout) { res(stdout || ''); });
+        });
+        const getCpu = new Promise<string>(function(res) {
+          exec('adb shell dumpsys cpuinfo', function(e, stdout) { res(stdout || ''); });
+        });
+        const getBattery = new Promise<string>(function(res) {
+          exec('adb shell dumpsys battery', function(e, stdout) { res(stdout || ''); });
+        });
+
+        Promise.all([getMem, getCpu, getBattery]).then(function(results) {
+          const memRaw = results[0];
+          const cpuRaw = results[1];
+          const batRaw = results[2];
+
+          // 파싱 로직 개선: 구형(TOTAL:)과 신형(TOTAL PSS:) 포맷 모두 매칭되는 정규식 적용
+          const memMatch = memRaw.match(/(?:TOTAL PSS:|TOTAL:)\s+(\d+)/i);
+          const memory = memMatch ? parseFloat((parseInt(memMatch[1], 10) / 1024).toFixed(2)) : 0;
+
+          const cpuMatch = cpuRaw.match(/(\d+)%\s+TOTAL/i);
+          const cpu = cpuMatch ? parseInt(cpuMatch[1], 10) : 0;
+
+          const batMatch = batRaw.match(/temperature:\s+(\d+)/i);
+          const temperature = batMatch ? parseInt(batMatch[1], 10) / 10 : 0;
+
+          resolve({ memory: memory, cpu: cpu, temperature: temperature });
+        });
+      });
+    });
+  });
+
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on('window-all-closed', () => {
+app.on('window-all-closed', function() {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
