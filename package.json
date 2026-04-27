@@ -22,7 +22,11 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0"
+    "@electron-toolkit/utils": "^4.0.0",
+    "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
+    "rechart": "^0.0.1",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
