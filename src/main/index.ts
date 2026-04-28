@@ -86,13 +86,13 @@ app.whenReady().then(function() {
         }
 
         const getMem = new Promise<string>(function(res) {
-          exec(`adb shell dumpsys meminfo ${target}`, function(e, stdout) { res(stdout || ''); });
+          exec(`adb shell dumpsys meminfo ${target}`, function(_, stdout) { res(stdout || ''); });
         });
         const getCpu = new Promise<string>(function(res) {
-          exec('adb shell dumpsys cpuinfo', function(e, stdout) { res(stdout || ''); });
+          exec('adb shell dumpsys cpuinfo', function(_, stdout) { res(stdout || ''); });
         });
         const getBattery = new Promise<string>(function(res) {
-          exec('adb shell dumpsys battery', function(e, stdout) { res(stdout || ''); });
+          exec('adb shell dumpsys battery', function(_, stdout) { res(stdout || ''); });
         });
 
         Promise.all([getMem, getCpu, getBattery]).then(function(results) {
