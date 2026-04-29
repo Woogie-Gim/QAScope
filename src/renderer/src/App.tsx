@@ -9,15 +9,18 @@ function App() {
   
   // 측정 상태 및 누적 데이터 관리
   const [isMeasuring, setIsMeasuring] = useState<boolean>(false)
-  const [currentData, setCurrentData] = useState({ memory: 0, cpu: 0, temperature: 0 })
+  const [currentData, setCurrentData] = useState({ memory: 0, cpu: 0, temperature: 0, network: 0 })
   const [history, setHistory] = useState<any[]>([]) 
   
   // 리포트 추출 UI 상태 관리
   const [showExport, setShowExport] = useState(false)
-  const [exportConfig, setExportConfig] = useState({ memory: true, cpu: true, temperature: true })
+  const [exportConfig, setExportConfig] = useState({ memory: true, cpu: true, temperature: true, network: true })
 
   // 차트 캡처를 위한 참조(ref) 변수 생성
   const chartRef = useRef<HTMLDivElement>(null)
+
+  // 이전 네트워크 누적 바이트 기록용 참조 변수
+  const prevNetworkRef = useRef<number>(0)
 
   // 초기 기기 목록 로드
   useEffect(() => { fetchDevices() }, [])
@@ -27,12 +30,28 @@ function App() {
     let interval: any
     if (isMeasuring && selectedPackage) {
       setShowExport(false)
+      // 측정 시작 시 이전 네트워크 바이트 초기화
+      prevNetworkRef.current = 0
       interval = setInterval(async () => {
         const data = await window.electron.ipcRenderer.invoke('measure-resources', selectedPackage)
         const timestamp = new Date().toLocaleTimeString()
         
-        const newData = { ...data, time: timestamp }
-        setCurrentData(data)
+        // 초당 네트워크 속도(KB/s) 계산
+        let networkSpeed = 0
+        if (prevNetworkRef.current > 0 && data.networkBytes >= prevNetworkRef.current) {
+          networkSpeed = parseFloat(((data.networkBytes - prevNetworkRef.current) / 1024).toFixed(2))
+        }
+        prevNetworkRef.current = data.networkBytes
+
+        const newData = { 
+          memory: data.memory, 
+          cpu: data.cpu, 
+          temperature: data.temperature, 
+          network: networkSpeed, 
+          time: timestamp 
+        }
+        
+        setCurrentData(newData)
         setHistory(prev => [...prev, newData]) 
       }, 1000)
     }
@@ -123,18 +142,17 @@ function App() {
             <Line yAxisId="left" type="monotone" dataKey="memory" stroke="#82ca9d" name="메모리(MB)" strokeWidth={2} dot={false} />
             <Line yAxisId="right" type="monotone" dataKey="cpu" stroke="#8884d8" name="CPU(%)" strokeWidth={2} dot={false} />
             <Line yAxisId="right" type="monotone" dataKey="temperature" stroke="#ff7300" name="온도(°C)" strokeWidth={2} dot={false} />
+            <Line yAxisId="right" type="monotone" dataKey="network" stroke="#00C49F" name="네트워크(KB/s)" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       {/* 실시간 수치 표시 카드 영역 */}
       <div style={{ display: 'flex', gap: '20px' }}>
-        {['메모리 (MB)', 'CPU (%)', '온도 (°C)'].map((label, idx) => (
-          <div key={label} style={{ flex: 1, padding: '20px', backgroundColor: 'rgba(51, 51, 51, 0.7)', borderRadius: '10px', textAlign: 'center' }}>
+        {['메모리 (MB)', 'CPU (%)', '온도 (°C)', '네트워크 (KB/s)'].map((label, idx) => (          <div key={label} style={{ flex: 1, padding: '20px', backgroundColor: 'rgba(51, 51, 51, 0.7)', borderRadius: '10px', textAlign: 'center' }}>
             <div style={{ color: '#8ab4f8', marginBottom: '10px', fontSize: '15px', whiteSpace: 'nowrap' }}>{label}</div>
             <div style={{ fontSize: '28px', fontWeight: 'bold' }}>
-              {idx === 0 ? currentData.memory : idx === 1 ? currentData.cpu : currentData.temperature}
-            </div>
+              {idx === 0 ? currentData.memory : idx === 1 ? currentData.cpu : idx === 2 ? currentData.temperature : currentData.network}            </div>
           </div>
         ))}
       </div>
@@ -165,6 +183,9 @@ function App() {
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                 <input type="checkbox" checked={exportConfig.temperature} onChange={e => setExportConfig({...exportConfig, temperature: e.target.checked})} /> 온도
+              </label>
+              <label>
+                <input type="checkbox" checked={exportConfig.network} onChange={e => setExportConfig({...exportConfig, network: e.target.checked})} /> 네트워크
               </label>
             </div>
             

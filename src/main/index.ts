@@ -76,7 +76,7 @@ app.whenReady().then(function() {
   });
 
   // PID 기반 리소스 측정 (멀티 프로세스 및 최신 안드로이드 완벽 대응)
-  ipcMain.handle('measure-resources', async function(_, pkgName) {
+ipcMain.handle('measure-resources', async function(_, pkgName) {
     return new Promise(function(resolve) {
       exec(`adb shell pidof ${pkgName}`, function(pidError, pidStdout) {
         
@@ -84,6 +84,14 @@ app.whenReady().then(function() {
         if (!pidError && pidStdout && pidStdout.trim() !== '') {
           target = pidStdout.trim().split(/\s+/)[0]; 
         }
+
+        // 앱의 UID 획득
+        const getUid = new Promise<string>(function(res) {
+          exec(`adb shell dumpsys package ${pkgName} | grep userId=`, function(_, stdout) {
+            const match = stdout.match(/userId=(\d+)/);
+            res(match ? match[1] : '');
+          });
+        });
 
         const getMem = new Promise<string>(function(res) {
           exec(`adb shell dumpsys meminfo ${target}`, function(_, stdout) { res(stdout || ''); });
@@ -95,10 +103,28 @@ app.whenReady().then(function() {
           exec('adb shell dumpsys battery', function(_, stdout) { res(stdout || ''); });
         });
 
-        Promise.all([getMem, getCpu, getBattery]).then(function(results) {
+        // UID 기반 네트워크 누적 바이트 파싱
+        const getNetwork = getUid.then(function(uid) {
+          return new Promise<number>(function(res) {
+            if (!uid) return res(0);
+            exec(`adb shell cat /proc/net/xt_qtaguid/stats | grep ${uid}`, function(_, stdout) {
+              let totalBytes = 0;
+              stdout.split('\n').forEach(function(line) {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length > 7) {
+                  totalBytes += parseInt(parts[5], 10) + parseInt(parts[7], 10);
+                }
+              });
+              res(totalBytes);
+            });
+          });
+        });
+
+        Promise.all([getMem, getCpu, getBattery, getNetwork]).then(function(results) {
           const memRaw = results[0];
           const cpuRaw = results[1];
           const batRaw = results[2];
+          const networkBytes = results[3]; // 누적 네트워크 바이트
 
           const memMatch = memRaw.match(/(?:TOTAL PSS:|TOTAL:)\s+(\d+)/i);
           const memory = memMatch ? parseFloat((parseInt(memMatch[1], 10) / 1024).toFixed(2)) : 0;
@@ -109,7 +135,8 @@ app.whenReady().then(function() {
           const batMatch = batRaw.match(/temperature:\s+(\d+)/i);
           const temperature = batMatch ? parseInt(batMatch[1], 10) / 10 : 0;
 
-          resolve({ memory: memory, cpu: cpu, temperature: temperature });
+          // 백엔드는 누적 바이트만 프론트엔드로 전달
+          resolve({ memory: memory, cpu: cpu, temperature: temperature, networkBytes: networkBytes });
         });
       });
     });
@@ -133,7 +160,8 @@ app.whenReady().then(function() {
     if (config.memory) columns.push({ header: '메모리 (MB)', key: 'memory', width: 15 });
     if (config.cpu) columns.push({ header: 'CPU (%)', key: 'cpu', width: 15 });
     if (config.temperature) columns.push({ header: '온도 (°C)', key: 'temperature', width: 15 });
-    
+    if (config.network) columns.push({ header: '네트워크 (KB/s)', key: 'network', width: 15 });
+
     sheet.columns = columns;
 
     // 데이터 삽입
@@ -145,7 +173,7 @@ app.whenReady().then(function() {
     sheet.getRow(1).font = { bold: true };
     sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F7FF' } };
 
-    // ⭐ 이미지 첨부 로직
+    // 이미지 첨부 로직
     if (chartImage) {
       const base64Data = chartImage.replace(/^data:image\/png;base64,/, "");
       const imageId = workbook.addImage({
