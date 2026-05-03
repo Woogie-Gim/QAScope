@@ -103,20 +103,28 @@ ipcMain.handle('measure-resources', async function(_, pkgName) {
           exec('adb shell dumpsys battery', function(_, stdout) { res(stdout || ''); });
         });
 
-        // UID 기반 네트워크 누적 바이트 파싱
-        const getNetwork = getUid.then(function(uid) {
-          return new Promise<number>(function(res) {
-            if (!uid) return res(0);
-            exec(`adb shell cat /proc/net/xt_qtaguid/stats | grep ${uid}`, function(_, stdout) {
-              let totalBytes = 0;
+        // 앱의 UID 획득 로직 삭제 (더 이상 필요 없음)
+        
+        // 기기 전체의 네트워크(Wi-Fi, 데이터) 누적 바이트 합산 (안드로이드 11+ 권한 우회)
+        const getNetwork = new Promise<number>(function(res) {
+          exec('adb shell cat /proc/net/dev', function(_, stdout) {
+            let totalBytes = 0;
+            if (stdout && stdout.trim() !== '') {
               stdout.split('\n').forEach(function(line) {
-                const parts = line.trim().split(/\s+/);
-                if (parts.length > 7) {
-                  totalBytes += parseInt(parts[5], 10) + parseInt(parts[7], 10);
+                // 내부 루프백(lo) 제외 및 실제 활성화된 네트워크 인터페이스 필터링
+                if (line.includes(':') && !line.includes('lo:')) {
+                  const parts = line.split(':')[1].trim().split(/\s+/);
+                  if (parts.length >= 9) {
+                    const rxBytes = parseInt(parts[0], 10); // 수신 바이트
+                    const txBytes = parseInt(parts[8], 10); // 송신 바이트
+                    if (!isNaN(rxBytes) && !isNaN(txBytes)) {
+                      totalBytes += (rxBytes + txBytes);
+                    }
+                  }
                 }
               });
-              res(totalBytes);
-            });
+            }
+            res(totalBytes);
           });
         });
 
