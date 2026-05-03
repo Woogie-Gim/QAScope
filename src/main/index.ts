@@ -85,14 +85,6 @@ ipcMain.handle('measure-resources', async function(_, pkgName) {
           target = pidStdout.trim().split(/\s+/)[0]; 
         }
 
-        // 앱의 UID 획득
-        const getUid = new Promise<string>(function(res) {
-          exec(`adb shell dumpsys package ${pkgName} | grep userId=`, function(_, stdout) {
-            const match = stdout.match(/userId=(\d+)/);
-            res(match ? match[1] : '');
-          });
-        });
-
         const getMem = new Promise<string>(function(res) {
           exec(`adb shell dumpsys meminfo ${target}`, function(_, stdout) { res(stdout || ''); });
         });
